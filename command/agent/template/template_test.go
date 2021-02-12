@@ -29,31 +29,11 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
-func TestCacheConfigUnix(t *testing.T) {
+func newAgentConfig(listeners []*configutil.Listener, enableCache bool) *config.Config {
 	agentConfig := &config.Config{
 		SharedConfig: &configutil.SharedConfig{
-			PidFile: "./pidfile",
-			Listeners: []*configutil.Listener{
-				{
-					Type:        "unix",
-					Address:     "foobar",
-					TLSDisable:  true,
-					SocketMode:  "configmode",
-					SocketUser:  "configuser",
-					SocketGroup: "configgroup",
-				},
-				{
-					Type:       "tcp",
-					Address:    "127.0.0.1:8300",
-					TLSDisable: true,
-				},
-				{
-					Type:        "tcp",
-					Address:     "127.0.0.1:8400",
-					TLSKeyFile:  "/path/to/cakey.pem",
-					TLSCertFile: "/path/to/cacert.pem",
-				},
-			},
+			PidFile:   "./pidfile",
+			Listeners: listeners,
 		},
 		AutoAuth: &config.AutoAuth{
 			Method: &config.Method{
@@ -74,10 +54,6 @@ func TestCacheConfigUnix(t *testing.T) {
 					},
 				},
 			},
-		},
-		Cache: &config.Cache{
-			UseAutoAuthToken:    true,
-			UseAutoAuthTokenRaw: true,
 		},
 		Vault: &config.Vault{
 			Address:          "http://127.0.0.1:1111",
@@ -89,7 +65,37 @@ func TestCacheConfigUnix(t *testing.T) {
 			ClientKey:        "config_client_key",
 		},
 	}
+	if enableCache {
+		agentConfig.Cache = &config.Cache{UseAutoAuthToken: true}
+	}
 
+	return agentConfig
+}
+
+func TestCacheConfigUnix(t *testing.T) {
+	listeners := []*configutil.Listener{
+		{
+			Type:        "unix",
+			Address:     "foobar",
+			TLSDisable:  true,
+			SocketMode:  "configmode",
+			SocketUser:  "configuser",
+			SocketGroup: "configgroup",
+		},
+		{
+			Type:       "tcp",
+			Address:    "127.0.0.1:8300",
+			TLSDisable: true,
+		},
+		{
+			Type:        "tcp",
+			Address:     "127.0.0.1:8400",
+			TLSKeyFile:  "/path/to/cakey.pem",
+			TLSCertFile: "/path/to/cacert.pem",
+		},
+	}
+
+	agentConfig := newAgentConfig(listeners, true)
 	serverConfig := ServerConfig{AgentConfig: agentConfig}
 
 	ctConfig, err := newRunnerConfig(&serverConfig, ctconfig.TemplateConfigs{})
@@ -101,72 +107,35 @@ func TestCacheConfigUnix(t *testing.T) {
 		t.Fatalf("expected unix address, got %s", *ctConfig.Vault.Address)
 	}
 
-	if *ctConfig.Vault.Address != "unix:/foobar" {
-		t.Fatalf("expected %s, got %s", "unix:/foobar", *ctConfig.Vault.Address)
+	expected := "unix:/foobar"
+	if *ctConfig.Vault.Address != expected {
+		t.Fatalf("expected %s, got %s", expected, *ctConfig.Vault.Address)
 	}
 }
-
-func TestCacheConfigHttp(t *testing.T) {
-	agentConfig := &config.Config{
-		SharedConfig: &configutil.SharedConfig{
-			PidFile: "./pidfile",
-			Listeners: []*configutil.Listener{
-				{
-					Type:       "tcp",
-					Address:    "foobar:8300",
-					TLSDisable: true,
-				},
-				{
-					Type:        "unix",
-					Address:     "/path/to/socket",
-					TLSDisable:  true,
-					SocketMode:  "configmode",
-					SocketUser:  "configuser",
-					SocketGroup: "configgroup",
-				},
-				{
-					Type:        "tcp",
-					Address:     "127.0.0.1:8400",
-					TLSKeyFile:  "/path/to/cakey.pem",
-					TLSCertFile: "/path/to/cacert.pem",
-				},
-			},
+func TestCacheConfigHTTP(t *testing.T) {
+	listeners := []*configutil.Listener{
+		{
+			Type:       "tcp",
+			Address:    "127.0.0.1:8300",
+			TLSDisable: true,
 		},
-		AutoAuth: &config.AutoAuth{
-			Method: &config.Method{
-				Type:      "aws",
-				MountPath: "auth/aws",
-				Config: map[string]interface{}{
-					"role": "foobar",
-				},
-			},
-			Sinks: []*config.Sink{
-				{
-					Type:   "file",
-					DHType: "curve25519",
-					DHPath: "/tmp/file-foo-dhpath",
-					AAD:    "foobar",
-					Config: map[string]interface{}{
-						"path": "/tmp/file-foo",
-					},
-				},
-			},
+		{
+			Type:        "unix",
+			Address:     "foobar",
+			TLSDisable:  true,
+			SocketMode:  "configmode",
+			SocketUser:  "configuser",
+			SocketGroup: "configgroup",
 		},
-		Cache: &config.Cache{
-			UseAutoAuthToken:    true,
-			UseAutoAuthTokenRaw: true,
-		},
-		Vault: &config.Vault{
-			Address:          "http://foobar:1111",
-			CACert:           "config_ca_cert",
-			CAPath:           "config_ca_path",
-			TLSSkipVerifyRaw: interface{}("true"),
-			TLSSkipVerify:    true,
-			ClientCert:       "config_client_cert",
-			ClientKey:        "config_client_key",
+		{
+			Type:        "tcp",
+			Address:     "127.0.0.1:8400",
+			TLSKeyFile:  "/path/to/cakey.pem",
+			TLSCertFile: "/path/to/cacert.pem",
 		},
 	}
 
+	agentConfig := newAgentConfig(listeners, true)
 	serverConfig := ServerConfig{AgentConfig: agentConfig}
 
 	ctConfig, err := newRunnerConfig(&serverConfig, ctconfig.TemplateConfigs{})
@@ -175,76 +144,39 @@ func TestCacheConfigHttp(t *testing.T) {
 	}
 
 	if !strings.HasPrefix(*ctConfig.Vault.Address, "http") {
-		t.Fatalf("expected %s, got %s", "http", *ctConfig.Vault.Address)
+		t.Fatalf("expected http address, got %s", *ctConfig.Vault.Address)
 	}
 
-	if *ctConfig.Vault.Address != "http://foobar:8300" {
-		t.Fatalf("expected %s, got %s", "http://foobar:8300", *ctConfig.Vault.Address)
+	expected := "http://127.0.0.1:8300"
+	if *ctConfig.Vault.Address != expected {
+		t.Fatalf("expected %s, got %s", expected, *ctConfig.Vault.Address)
 	}
 }
 
-func TestCacheConfigHttps(t *testing.T) {
-	agentConfig := &config.Config{
-		SharedConfig: &configutil.SharedConfig{
-			PidFile: "./pidfile",
-			Listeners: []*configutil.Listener{
-				{
-					Type:        "tcp",
-					Address:     "foobar:8300",
-					TLSDisable:  false,
-					TLSKeyFile:  "/path/to/cakey.pem",
-					TLSCertFile: "/path/to/cacert.pem",
-				},
-				{
-					Type:        "unix",
-					Address:     "/path/to/socket",
-					TLSDisable:  true,
-					SocketMode:  "configmode",
-					SocketUser:  "configuser",
-					SocketGroup: "configgroup",
-				},
-				{
-					Type:       "tcp",
-					Address:    "127.0.0.1:8400",
-					TLSDisable: true,
-				},
-			},
+func TestCacheConfigHTTPS(t *testing.T) {
+	listeners := []*configutil.Listener{
+		{
+			Type:        "tcp",
+			Address:     "127.0.0.1:8300",
+			TLSKeyFile:  "/path/to/cakey.pem",
+			TLSCertFile: "/path/to/cacert.pem",
 		},
-		AutoAuth: &config.AutoAuth{
-			Method: &config.Method{
-				Type:      "aws",
-				MountPath: "auth/aws",
-				Config: map[string]interface{}{
-					"role": "foobar",
-				},
-			},
-			Sinks: []*config.Sink{
-				{
-					Type:   "file",
-					DHType: "curve25519",
-					DHPath: "/tmp/file-foo-dhpath",
-					AAD:    "foobar",
-					Config: map[string]interface{}{
-						"path": "/tmp/file-foo",
-					},
-				},
-			},
+		{
+			Type:        "unix",
+			Address:     "foobar",
+			TLSDisable:  true,
+			SocketMode:  "configmode",
+			SocketUser:  "configuser",
+			SocketGroup: "configgroup",
 		},
-		Cache: &config.Cache{
-			UseAutoAuthToken:    true,
-			UseAutoAuthTokenRaw: true,
-		},
-		Vault: &config.Vault{
-			Address:          "http://foobar:1111",
-			CACert:           "config_ca_cert",
-			CAPath:           "config_ca_path",
-			TLSSkipVerifyRaw: interface{}("true"),
-			TLSSkipVerify:    true,
-			ClientCert:       "config_client_cert",
-			ClientKey:        "config_client_key",
+		{
+			Type:       "tcp",
+			Address:    "127.0.0.1:8400",
+			TLSDisable: true,
 		},
 	}
 
+	agentConfig := newAgentConfig(listeners, true)
 	serverConfig := ServerConfig{AgentConfig: agentConfig}
 
 	ctConfig, err := newRunnerConfig(&serverConfig, ctconfig.TemplateConfigs{})
@@ -253,15 +185,74 @@ func TestCacheConfigHttps(t *testing.T) {
 	}
 
 	if !strings.HasPrefix(*ctConfig.Vault.Address, "https") {
-		t.Fatalf("expected %s, got %s", "https", *ctConfig.Vault.Address)
+		t.Fatalf("expected https address, got %s", *ctConfig.Vault.Address)
 	}
 
-	if *ctConfig.Vault.Address != "https://foobar:8300" {
-		t.Fatalf("expected %s, got %s", "https://foobar:8300", *ctConfig.Vault.Address)
+	expected := "https://127.0.0.1:8300"
+	if *ctConfig.Vault.Address != expected {
+		t.Fatalf("expected %s, got %s", expected, *ctConfig.Vault.Address)
+	}
+}
+
+func TestCacheConfigNoCache(t *testing.T) {
+	listeners := []*configutil.Listener{
+		{
+			Type:        "tcp",
+			Address:     "127.0.0.1:8300",
+			TLSKeyFile:  "/path/to/cakey.pem",
+			TLSCertFile: "/path/to/cacert.pem",
+		},
+		{
+			Type:        "unix",
+			Address:     "foobar",
+			TLSDisable:  true,
+			SocketMode:  "configmode",
+			SocketUser:  "configuser",
+			SocketGroup: "configgroup",
+		},
+		{
+			Type:       "tcp",
+			Address:    "127.0.0.1:8400",
+			TLSDisable: true,
+		},
 	}
 
-	if *ctConfig.Vault.SSL.Verify != false {
-		t.Fatalf("expected verify %t, got %t", false, *ctConfig.Vault.SSL.Verify)
+	agentConfig := newAgentConfig(listeners, false)
+	serverConfig := ServerConfig{AgentConfig: agentConfig}
+
+	ctConfig, err := newRunnerConfig(&serverConfig, ctconfig.TemplateConfigs{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if !strings.HasPrefix(*ctConfig.Vault.Address, "http") {
+		t.Fatalf("expected http address, got %s", *ctConfig.Vault.Address)
+	}
+
+	expected := "http://127.0.0.1:1111"
+	if *ctConfig.Vault.Address != expected {
+		t.Fatalf("expected %s, got %s", expected, *ctConfig.Vault.Address)
+	}
+}
+
+func TestCacheConfigNoListener(t *testing.T) {
+	listeners := []*configutil.Listener{}
+
+	agentConfig := newAgentConfig(listeners, true)
+	serverConfig := ServerConfig{AgentConfig: agentConfig}
+
+	ctConfig, err := newRunnerConfig(&serverConfig, ctconfig.TemplateConfigs{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if !strings.HasPrefix(*ctConfig.Vault.Address, "http") {
+		t.Fatalf("expected http address, got %s", *ctConfig.Vault.Address)
+	}
+
+	expected := "http://127.0.0.1:1111"
+	if *ctConfig.Vault.Address != expected {
+		t.Fatalf("expected %s, got %s", expected, *ctConfig.Vault.Address)
 	}
 }
 
