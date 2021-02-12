@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	ctconfig "github.com/hashicorp/consul-template/config"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/command/agent/config"
+	"github.com/hashicorp/vault/internalshared/configutil"
 	"github.com/hashicorp/vault/sdk/helper/logging"
 	"github.com/hashicorp/vault/sdk/helper/pointerutil"
 )
@@ -24,6 +26,242 @@ func TestNewServer(t *testing.T) {
 	server := NewServer(&ServerConfig{})
 	if server == nil {
 		t.Fatal("nil server returned")
+	}
+}
+
+func TestCacheConfigUnix(t *testing.T) {
+	agentConfig := &config.Config{
+		SharedConfig: &configutil.SharedConfig{
+			PidFile: "./pidfile",
+			Listeners: []*configutil.Listener{
+				{
+					Type:        "unix",
+					Address:     "foobar",
+					TLSDisable:  true,
+					SocketMode:  "configmode",
+					SocketUser:  "configuser",
+					SocketGroup: "configgroup",
+				},
+				{
+					Type:       "tcp",
+					Address:    "127.0.0.1:8300",
+					TLSDisable: true,
+				},
+				{
+					Type:        "tcp",
+					Address:     "127.0.0.1:8400",
+					TLSKeyFile:  "/path/to/cakey.pem",
+					TLSCertFile: "/path/to/cacert.pem",
+				},
+			},
+		},
+		AutoAuth: &config.AutoAuth{
+			Method: &config.Method{
+				Type:      "aws",
+				MountPath: "auth/aws",
+				Config: map[string]interface{}{
+					"role": "foobar",
+				},
+			},
+			Sinks: []*config.Sink{
+				{
+					Type:   "file",
+					DHType: "curve25519",
+					DHPath: "/tmp/file-foo-dhpath",
+					AAD:    "foobar",
+					Config: map[string]interface{}{
+						"path": "/tmp/file-foo",
+					},
+				},
+			},
+		},
+		Cache: &config.Cache{
+			UseAutoAuthToken:    true,
+			UseAutoAuthTokenRaw: true,
+		},
+		Vault: &config.Vault{
+			Address:          "http://127.0.0.1:1111",
+			CACert:           "config_ca_cert",
+			CAPath:           "config_ca_path",
+			TLSSkipVerifyRaw: interface{}("true"),
+			TLSSkipVerify:    true,
+			ClientCert:       "config_client_cert",
+			ClientKey:        "config_client_key",
+		},
+	}
+
+	serverConfig := ServerConfig{AgentConfig: agentConfig}
+
+	ctConfig, err := newRunnerConfig(&serverConfig, ctconfig.TemplateConfigs{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if !strings.HasPrefix(*ctConfig.Vault.Address, "unix") {
+		t.Fatalf("expected unix address, got %s", *ctConfig.Vault.Address)
+	}
+
+	if *ctConfig.Vault.Address != "unix:/foobar" {
+		t.Fatalf("expected %s, got %s", "unix:/foobar", *ctConfig.Vault.Address)
+	}
+}
+
+func TestCacheConfigHttp(t *testing.T) {
+	agentConfig := &config.Config{
+		SharedConfig: &configutil.SharedConfig{
+			PidFile: "./pidfile",
+			Listeners: []*configutil.Listener{
+				{
+					Type:       "tcp",
+					Address:    "foobar:8300",
+					TLSDisable: true,
+				},
+				{
+					Type:        "unix",
+					Address:     "/path/to/socket",
+					TLSDisable:  true,
+					SocketMode:  "configmode",
+					SocketUser:  "configuser",
+					SocketGroup: "configgroup",
+				},
+				{
+					Type:        "tcp",
+					Address:     "127.0.0.1:8400",
+					TLSKeyFile:  "/path/to/cakey.pem",
+					TLSCertFile: "/path/to/cacert.pem",
+				},
+			},
+		},
+		AutoAuth: &config.AutoAuth{
+			Method: &config.Method{
+				Type:      "aws",
+				MountPath: "auth/aws",
+				Config: map[string]interface{}{
+					"role": "foobar",
+				},
+			},
+			Sinks: []*config.Sink{
+				{
+					Type:   "file",
+					DHType: "curve25519",
+					DHPath: "/tmp/file-foo-dhpath",
+					AAD:    "foobar",
+					Config: map[string]interface{}{
+						"path": "/tmp/file-foo",
+					},
+				},
+			},
+		},
+		Cache: &config.Cache{
+			UseAutoAuthToken:    true,
+			UseAutoAuthTokenRaw: true,
+		},
+		Vault: &config.Vault{
+			Address:          "http://foobar:1111",
+			CACert:           "config_ca_cert",
+			CAPath:           "config_ca_path",
+			TLSSkipVerifyRaw: interface{}("true"),
+			TLSSkipVerify:    true,
+			ClientCert:       "config_client_cert",
+			ClientKey:        "config_client_key",
+		},
+	}
+
+	serverConfig := ServerConfig{AgentConfig: agentConfig}
+
+	ctConfig, err := newRunnerConfig(&serverConfig, ctconfig.TemplateConfigs{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if !strings.HasPrefix(*ctConfig.Vault.Address, "http") {
+		t.Fatalf("expected %s, got %s", "http", *ctConfig.Vault.Address)
+	}
+
+	if *ctConfig.Vault.Address != "http://foobar:8300" {
+		t.Fatalf("expected %s, got %s", "http://foobar:8300", *ctConfig.Vault.Address)
+	}
+}
+
+func TestCacheConfigHttps(t *testing.T) {
+	agentConfig := &config.Config{
+		SharedConfig: &configutil.SharedConfig{
+			PidFile: "./pidfile",
+			Listeners: []*configutil.Listener{
+				{
+					Type:        "tcp",
+					Address:     "foobar:8300",
+					TLSDisable:  false,
+					TLSKeyFile:  "/path/to/cakey.pem",
+					TLSCertFile: "/path/to/cacert.pem",
+				},
+				{
+					Type:        "unix",
+					Address:     "/path/to/socket",
+					TLSDisable:  true,
+					SocketMode:  "configmode",
+					SocketUser:  "configuser",
+					SocketGroup: "configgroup",
+				},
+				{
+					Type:       "tcp",
+					Address:    "127.0.0.1:8400",
+					TLSDisable: true,
+				},
+			},
+		},
+		AutoAuth: &config.AutoAuth{
+			Method: &config.Method{
+				Type:      "aws",
+				MountPath: "auth/aws",
+				Config: map[string]interface{}{
+					"role": "foobar",
+				},
+			},
+			Sinks: []*config.Sink{
+				{
+					Type:   "file",
+					DHType: "curve25519",
+					DHPath: "/tmp/file-foo-dhpath",
+					AAD:    "foobar",
+					Config: map[string]interface{}{
+						"path": "/tmp/file-foo",
+					},
+				},
+			},
+		},
+		Cache: &config.Cache{
+			UseAutoAuthToken:    true,
+			UseAutoAuthTokenRaw: true,
+		},
+		Vault: &config.Vault{
+			Address:          "http://foobar:1111",
+			CACert:           "config_ca_cert",
+			CAPath:           "config_ca_path",
+			TLSSkipVerifyRaw: interface{}("true"),
+			TLSSkipVerify:    true,
+			ClientCert:       "config_client_cert",
+			ClientKey:        "config_client_key",
+		},
+	}
+
+	serverConfig := ServerConfig{AgentConfig: agentConfig}
+
+	ctConfig, err := newRunnerConfig(&serverConfig, ctconfig.TemplateConfigs{})
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+
+	if !strings.HasPrefix(*ctConfig.Vault.Address, "https") {
+		t.Fatalf("expected %s, got %s", "https", *ctConfig.Vault.Address)
+	}
+
+	if *ctConfig.Vault.Address != "https://foobar:8300" {
+		t.Fatalf("expected %s, got %s", "https://foobar:8300", *ctConfig.Vault.Address)
+	}
+
+	if *ctConfig.Vault.SSL.Verify != false {
+		t.Fatalf("expected verify %t, got %t", false, *ctConfig.Vault.SSL.Verify)
 	}
 }
 
