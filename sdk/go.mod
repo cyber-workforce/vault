@@ -39,7 +39,7 @@ require (
 	github.com/ryanuber/go-glob v1.0.0
 	github.com/stretchr/testify v1.7.0
 	go.uber.org/atomic v1.9.0
-	golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97
+	golang.org/x/crypto v0.1.0
 	google.golang.org/grpc v1.41.0
 	google.golang.org/protobuf v1.26.0
 )
